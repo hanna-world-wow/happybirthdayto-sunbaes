@@ -22,7 +22,6 @@ const presetWishes = [
   "케이크 칼질은 내가, 소원 빌기는 너희가 🎂",
   "건강 + 행운 + 사랑 3연타 가즈아 💥",
   "너희가 있어서 우리의 오늘이 더 예뻐 💗",
-  
 ];
 
 const gradients = [
@@ -34,7 +33,7 @@ const gradients = [
 ];
 
 // ------ Mic Blow Detector with live level ------
-function useMicBlowDetector({ enabled, onBlow, threshold = 0.16, holdMs = 500, onLevel }) {
+function useMicBlowDetector({ enabled, onBlow, threshold = 0.12, holdMs = 400, onLevel }) {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const rafRef = useRef(0);
@@ -74,9 +73,13 @@ function useMicBlowDetector({ enabled, onBlow, threshold = 0.16, holdMs = 500, o
 }
 
 // ------- Supabase helper -------
+// You can hardcode your Supabase keys here for auto-setup
+const DEFAULT_SUPABASE_URL = "https://hcaeuitjsihmwypnlavj.supabase.co"; // <- 여기에 프로젝트 URL 넣기 (예: https://xxxx.supabase.co)
+const DEFAULT_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjYWV1aXRqc2lobXd5cG5sYXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxNjg3NTgsImV4cCI6MjA3Mjc0NDc1OH0.qeCDOwl81IFS38Pkrym4avma-e0otGsjUwQxjez0t8o"; // <- 여기에 anon key 넣기
+
 function useSupabase() {
-  const [url, setUrl] = useState(() => localStorage.getItem("sb_url") || "");
-  const [key, setKey] = useState(() => localStorage.getItem("sb_key") || "");
+  const [url, setUrl] = useState(() => localStorage.getItem("sb_url") || DEFAULT_SUPABASE_URL);
+  const [key, setKey] = useState(() => localStorage.getItem("sb_key") || DEFAULT_SUPABASE_ANON);
   const client = useMemo(() => (url && key ? createClient(url, key) : null), [url, key]);
   const persist = () => { localStorage.setItem("sb_url", url); localStorage.setItem("sb_key", key); };
   return { client, url, key, setUrl, setKey, persist };
@@ -105,8 +108,8 @@ export default function App() {
   const [candles, setCandles] = useState(() => Array(CANDLE_COUNT).fill(true)); // true = lit
   const [micOn, setMicOn] = useState(false);
   const [level, setLevel] = useState(0);
-  const [threshold, setThreshold] = useState(0.16);
-  const [holdMs, setHoldMs] = useState(500);
+  const [threshold, setThreshold] = useState(0.12);
+  const [holdMs, setHoldMs] = useState(400);
   const litCount = candles.filter(Boolean).length;
 
   const [myName, setMyName] = useState(myDefault);
@@ -185,8 +188,29 @@ export default function App() {
 
   const submitGuestbook = async () => {
     const name = (guestName.trim() || "익명").slice(0,30);
-    const message = guestMsg.trim(); if(!message) return;
-    if(client){ await client.from("guestbook").insert({ name, message, room }); setGuestMsg(""); }
+    const message = guestMsg.trim(); if(!message) { alert("메시지를 입력해 주세요"); return; }
+    const entry = { id: Date.now(), name, message, created_at: new Date().toISOString(), room };
+
+    try {
+      if(!client){
+        // 로컬 폴백 (Supabase 미설정)
+        setGuestbook((gb)=>[entry, ...gb]);
+        setGuestMsg("");
+        return;
+      }
+      const { error } = await client.from("guestbook").insert({ name, message, room });
+      if (error) throw error;
+      setGuestMsg("");
+      // 서버 반영 직후 다시 읽어오기 (정합성 보장)
+      const { data: refreshed, error: selErr } = await client
+        .from("guestbook").select("id,name,message,created_at,room")
+        .eq("room", room)
+        .order("created_at", { ascending:false });
+      if(!selErr) setGuestbook(refreshed||[]);
+    } catch(e){
+      console.warn("guestbook insert fail", e);
+      alert("게스트북 저장 중 문제가 생겼어요. Supabase 설정 및 권한 정책을 확인해 주세요.");
+    }
   };
 
   const copyLink = async () => {
@@ -282,6 +306,20 @@ export default function App() {
             <div className="mt-6 grid md:grid-cols-3 gap-4 items-center">
               <div>
                 <div className="text-xs opacity-80 mb-1">민감도(Threshold): {threshold.toFixed(2)}</div>
+                <input type="range" min="0.06" max="0.35" step="0.01" value={threshold} onChange={(e)=>setThreshold(parseFloat(e.target.value))} className="w-full"/>
+              </div>
+              <div>
+                <div className="text-xs opacity-80 mb-1">길게 불기 시간(ms): {holdMs}</div>
+                <input type="range" min="200" max="1200" step="50" value={holdMs} onChange={(e)=>setHoldMs(parseInt(e.target.value))} className="w-full"/>
+              </div>
+              <div>
+                <div className="text-xs opacity-80 mb-1">입력 레벨</div>
+                <div className={`h-3 rounded-full overflow-hidden border ${level>threshold?"border-white":"border-white/20"} bg-white/20`}>
+                  <div className="h-full bg-white/80" style={{ width: `${Math.min(100, Math.round(level*220))}%` }} />
+                </div>
+                <div className="text-[10px] opacity-70 mt-1">RMS: {level.toFixed(3)} {level>threshold && "· 감지!"}</div>
+              </div>
+            </div>
                 <input type="range" min="0.08" max="0.35" step="0.01" value={threshold} onChange={(e)=>setThreshold(parseFloat(e.target.value))} className="w-full"/>
               </div>
               <div>
