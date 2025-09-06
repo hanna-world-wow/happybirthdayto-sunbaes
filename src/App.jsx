@@ -4,7 +4,11 @@ import { PartyPopper, Stars, Sparkles, Gift, Mic, MicOff, Flame, Wand2, Share2, 
 import Confetti from "react-confetti";
 import { createClient } from "@supabase/supabase-js";
 
-// ---- tiny ui ----
+// ---- Supabase 기본값 (자동 연결) ----
+const DEFAULT_SUPABASE_URL = "https://hcaeuitjsihmwypnlavj.supabase.co";
+const DEFAULT_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjYWV1aXRqc2lobXd5cG5sYXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxNjg3NTgsImV4cCI6MjA3Mjc0NDc1OH0.qeCDOwl81IFS38Pkrym4avma-e0otGsjUwQxjez0t8o";
+
+// ---- UI helpers ----
 const Button = ({ className = "", children, ...props }) => (
   <button className={`px-4 py-2 rounded-2xl shadow-sm border border-white/20 bg-white/10 hover:bg-white/20 backdrop-blur text-white transition ${className}`} {...props}>
     {children}
@@ -22,6 +26,7 @@ const presetWishes = [
   "케이크 칼질은 내가, 소원 빌기는 너희가 🎂",
   "건강 + 행운 + 사랑 3연타 가즈아 💥",
   "너희가 있어서 우리의 오늘이 더 예뻐 💗",
+  "올해도 우리 같이 미쳤다 프로젝트 하자 😆",
 ];
 
 const gradients = [
@@ -32,35 +37,44 @@ const gradients = [
   "from-sky-500 via-cyan-400 to-violet-500",
 ];
 
-// ------ Mic Blow Detector with live level ------
-function useMicBlowDetector({ enabled, onBlow, threshold = 0.12, holdMs = 400, onLevel }) {
+// ------ Mic Blow Detector ------
+function useMicBlowDetector({ enabled, onBlow, threshold = 0.12, holdMs = 250, onLevel }) {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const rafRef = useRef(0);
   const blowStartRef = useRef(0);
+
   useEffect(() => {
     let stream;
     async function start() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const Ctx = window.AudioContext || window.webkitAudioContext; const ctx = new Ctx();
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new Ctx();
         try { await ctx.resume?.(); } catch {}
         audioCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
         const an = ctx.createAnalyser(); an.fftSize = 2048; src.connect(an); analyserRef.current = an;
+
         const buf = new Uint8Array(analyserRef.current.fftSize);
         const loop = () => {
           if (!analyserRef.current) return;
           an.getByteTimeDomainData(buf);
           let s = 0; for (let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; s += v*v; }
-          const rms = Math.sqrt(s/buf.length); // ~0..0.6
+          const rms = Math.sqrt(s/buf.length);
           onLevel?.(rms);
+
           const now = performance.now();
           if (enabled) {
-            if (rms > threshold) {
+            if (rms > threshold * 1.6) {
+              onBlow?.(rms);
+              blowStartRef.current = 0;
+            } else if (rms > threshold) {
               if (!blowStartRef.current) blowStartRef.current = now;
               if (now - blowStartRef.current > holdMs) { onBlow?.(rms); blowStartRef.current = 0; }
-            } else { blowStartRef.current = 0; }
+            } else {
+              blowStartRef.current = 0;
+            }
           }
           rafRef.current = requestAnimationFrame(loop);
         };
@@ -68,15 +82,15 @@ function useMicBlowDetector({ enabled, onBlow, threshold = 0.12, holdMs = 400, o
       } catch (e) { console.warn("Mic init failed", e); }
     }
     if (enabled) start();
-    return () => { cancelAnimationFrame(rafRef.current); try{audioCtxRef.current?.close();}catch{} try{stream?.getTracks().forEach(t=>t.stop());}catch{} };
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      try{audioCtxRef.current?.close();}catch{}
+      try{stream?.getTracks().forEach(t=>t.stop());}catch{}
+    };
   }, [enabled, onBlow, threshold, holdMs, onLevel]);
 }
 
 // ------- Supabase helper -------
-// You can hardcode your Supabase keys here for auto-setup
-const DEFAULT_SUPABASE_URL = "https://hcaeuitjsihmwypnlavj.supabase.co"; // <- 여기에 프로젝트 URL 넣기 (예: https://xxxx.supabase.co)
-const DEFAULT_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjYWV1aXRqc2lobXd5cG5sYXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxNjg3NTgsImV4cCI6MjA3Mjc0NDc1OH0.qeCDOwl81IFS38Pkrym4avma-e0otGsjUwQxjez0t8o"; // <- 여기에 anon key 넣기
-
 function useSupabase() {
   const [url, setUrl] = useState(() => localStorage.getItem("sb_url") || DEFAULT_SUPABASE_URL);
   const [key, setKey] = useState(() => localStorage.getItem("sb_key") || DEFAULT_SUPABASE_ANON);
@@ -84,6 +98,7 @@ function useSupabase() {
   const persist = () => { localStorage.setItem("sb_url", url); localStorage.setItem("sb_key", key); };
   return { client, url, key, setUrl, setKey, persist };
 }
+
 
 export default function App() {
   const q = useQuery();
