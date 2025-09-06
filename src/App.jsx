@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Gift, Heart, PartyPopper, Sparkles, Music, Send, ImagePlus, Share2, Trash2, MessageSquareHeart, Wand2, Camera, Cake, Stars, Mic, MicOff, Flame, Users } from "lucide-react";
+import { Gift, Heart, PartyPopper, Sparkles, Music, Send, ImagePlus, Share2, Trash2, MessageSquareHeart, Wand2, Copy, Camera, Cake, Stars, Mic, MicOff, Flame, Users } from "lucide-react";
 import Confetti from "react-confetti";
 import { createClient } from "@supabase/supabase-js";
 
+// Tailwind assumed. Minimal shadcn-like.
 const Button = ({ className = "", children, ...props }) => (
   <button
     className={`px-4 py-2 rounded-2xl shadow-sm border border-white/20 bg-white/10 hover:bg-white/20 backdrop-blur text-white transition ${className}`}
@@ -26,7 +27,6 @@ const presetWishes = [
   "케이크 칼질은 내가, 소원 빌기는 너희가 🎂",
   "건강 + 행운 + 사랑 3연타 가즈아 💥",
   "너희가 있어서 우리의 오늘이 더 예뻐 💗",
-  "올해도 우리 같이 미쳤다 프로젝트 하자 😆",
 ];
 
 const gradients = [
@@ -37,6 +37,7 @@ const gradients = [
   "from-sky-500 via-cyan-400 to-violet-500",
 ];
 
+// -------- Candle Logic ---------
 function useMicBlowDetector({ enabled, onBlow, threshold = 0.2, holdMs = 900 }) {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -57,15 +58,17 @@ function useMicBlowDetector({ enabled, onBlow, threshold = 0.2, holdMs = 900 }) 
         analyserRef.current = analyser;
 
         const data = new Uint8Array(analyser.frequencyBinCount);
-        const loop = () => {
+        const loop = (t) => {
           if (!enabled) { rafRef.current = requestAnimationFrame(loop); return; }
           analyser.getByteTimeDomainData(data);
+          // Compute normalized RMS
           let sumSq = 0;
           for (let i = 0; i < data.length; i++) {
-            const v = (data[i] - 128) / 128;
+            const v = (data[i] - 128) / 128; // -1..1
             sumSq += v * v;
           }
-          const rms = Math.sqrt(sumSq / data.length);
+          const rms = Math.sqrt(sumSq / data.length); // 0..~
+
           const now = performance.now();
           if (rms > threshold) {
             if (blowStartRef.current === 0) blowStartRef.current = now;
@@ -96,11 +99,14 @@ function Candle({ lit }) {
   return (
     <div className="flex flex-col items-center mx-3">
       <div className="relative">
+        {/* Flame */}
         <div className={`absolute -top-6 left-1/2 -translate-x-1/2 w-6 h-6 ${lit ? "opacity-100" : "opacity-0"}`}>
           <div className="w-6 h-6 rounded-full blur-[6px] bg-amber-300 animate-[flicker_0.12s_infinite_alternate]" />
           <div className="w-3 h-4 rounded-full bg-yellow-200 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
         </div>
+        {/* Wick */}
         <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-[2px] h-3 bg-black/70" />
+        {/* Body */}
         <div className="w-8 h-24 bg-white rounded-md shadow-inner relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-b from-white to-gray-200" />
           <div className="absolute inset-x-0 top-0 h-2 bg-pink-200/80" />
@@ -110,6 +116,7 @@ function Candle({ lit }) {
   );
 }
 
+// -------------- Supabase (optional) ---------------
 function useSupabase() {
   const [url, setUrl] = useState(() => localStorage.getItem("sb_url") || "");
   const [key, setKey] = useState(() => localStorage.getItem("sb_key") || "");
@@ -124,12 +131,12 @@ function useSupabase() {
   return { client, url, key, setUrl, setKey, persist };
 }
 
-export default function App() {
+export default function BirthdaySite() {
   const q = useQuery();
-  const defaultFriends = ["혜진", "성현"];
+  const defaultFriends = ["혜진", "성현"]; // 요청 반영: 친구 두 명
   const namesParam = q.get("name");
   const friends = namesParam ? namesParam.split(",").map(s=>s.trim()).filter(Boolean) : defaultFriends;
-  const fromParam = q.get("from") || "한나";
+  const fromParam = q.get("from") || "한나"; // 요청 반영: 한나
   const theme = parseInt(q.get("theme") || "0", 10) % gradients.length;
 
   const [runConfetti, setRunConfetti] = useState(true);
@@ -141,13 +148,15 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("bd_photos") || "[]"); } catch { return []; }
   });
   const [input, setInput] = useState("");
-  const [showTips, setShowTips] = useState(true);
+  const [showTips, setShowTips] = useState(false);
   const [showMusic, setShowMusic] = useState(false);
   const [musicUrl, setMusicUrl] = useState(() => localStorage.getItem("bd_music") || "");
 
-  const [litCount, setLitCount] = useState(3);
+  // Candles state
+  const [litCount, setLitCount] = useState(3); // number of lit candles
   const [micOn, setMicOn] = useState(false);
 
+  // Guestbook (realtime optional)
   const { client, url, key, setUrl, setKey, persist } = useSupabase();
   const room = `birthday-${friends.join("&")}`;
   const [guestbook, setGuestbook] = useState([]);
@@ -155,14 +164,16 @@ export default function App() {
   const [guestMsg, setGuestMsg] = useState("");
   const [realtimeOn, setRealtimeOn] = useState(false);
 
+  // Confetti stop timer
   useEffect(() => { const t = setTimeout(() => setRunConfetti(false), 6000); return () => clearTimeout(t); }, []);
   useEffect(() => { localStorage.setItem("bd_messages", JSON.stringify(messages)); }, [messages]);
   useEffect(() => { localStorage.setItem("bd_photos", JSON.stringify(photos)); }, [photos]);
 
+  // Blow detection
   useMicBlowDetector({
     enabled: micOn && litCount > 0,
     onBlow: () => setLitCount((c) => Math.max(0, c - 1)),
-    threshold: 0.22,
+    threshold: 0.22, // 조용한 공간에서 0.15~0.25 사이로 조정
     holdMs: 800,
   });
 
@@ -179,13 +190,15 @@ export default function App() {
     alert("링크가 복사되었어요! 친구에게 보내보세요 ✨");
   };
 
+  // -------- Guestbook load & realtime --------
   useEffect(() => {
     let channel;
     (async () => {
       if (!client) {
+        // local fallback
         try {
           const local = JSON.parse(localStorage.getItem("bd_guestbook") || "[]");
-          setGuestbook(local.filter((g)=> g.room === room).sort((a,b)=> b.created_at.localeCompare(a.created_at)));
+          setGuestbook(local.filter((g)=> g.room === room));
         } catch {}
         return;
       }
@@ -233,7 +246,7 @@ export default function App() {
       <header className="max-w-5xl mx-auto px-5 pt-8 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <PartyPopper className="w-6 h-6" />
-          <span className="font-semibold tracking-wide">Birthday Splash</span>
+          <span className="font-semibold tracking-wide">HAPPY BIRTHDAY</span>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setShowTips((v) => !v)} className="hidden md:inline-flex"><Wand2 className="w-4 h-4 mr-1"/>Tips</Button>
@@ -242,6 +255,7 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-5 pb-24">
+        {/* HERO */}
         <section className="text-center pt-10">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-2 mb-4">
@@ -261,6 +275,7 @@ export default function App() {
           </motion.div>
         </section>
 
+        {/* CANDLES */}
         <section className="mt-10">
           <Card>
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -277,10 +292,11 @@ export default function App() {
                 {[0,1,2].map((i)=> <Candle key={i} lit={i < litCount} />)}
               </div>
             </div>
-            <p className="text-sm opacity-90 mt-3">마이크 ON 후 촛불에 대고 길게 후— 불면 하나씩 꺼져요. (조용한 환경: 잘 꺼짐 / 시끄러우면 가까이서 불어주세요)</p>
+            <p className="text-sm opacity-90 mt-3">마이크 ON 후 촛불에 대고 길게 후— 불면 하나씩 꺼져요. (조용한 환경: 잘 꺼짐 / 시끄러우면 버튼으로 민감도 조절이나 가까이서 불어주세요)</p>
           </Card>
         </section>
 
+        {/* RANDOM WISH */}
         <AnimatePresence mode="wait">
           <motion.section key={wish} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }} className="mt-10">
             <Card className="text-center">
@@ -292,6 +308,7 @@ export default function App() {
           </motion.section>
         </AnimatePresence>
 
+        {/* MUSIC */}
         {showMusic && (
           <section className="mt-6">
             <Card>
@@ -313,6 +330,7 @@ export default function App() {
           </section>
         )}
 
+        {/* MESSAGE WALL & PHOTOS */}
         <section className="mt-10 grid md:grid-cols-2 gap-6">
           <Card>
             <div className="flex items-center gap-2 mb-3"><MessageSquareHeart className="w-5 h-5"/><h3 className="font-semibold">축하 메시지 남기기</h3></div>
@@ -365,6 +383,7 @@ export default function App() {
           </Card>
         </section>
 
+        {/* GUESTBOOK (Realtime optional) */}
         <section className="mt-10">
           <Card>
             <div className="flex items-center justify-between flex-wrap gap-3">
@@ -395,11 +414,12 @@ export default function App() {
             </div>
 
             <div className="mt-3 text-xs opacity-80">
-              * Supabase를 쓰려면 테이블 <code>guestbook</code> (id bigserial or uuid default, name text, message text, room text, created_at timestamptz default now()) 를 만들어 주세요. URL/Key는 위 입력칸에 저장. 설정하지 않으면 브라우저 localStorage로 동작합니다.
+              * Supabase를 쓰려면 테이블 <code>guestbook</code> (id bigint or uuid default, name text, message text, room text, created_at timestamptz default now()) 를 만들어 주세요. URL/Key는 위 입력칸에 저장하면 돼요. 설정하지 않으면 브라우저 localStorage로 동작합니다.
             </div>
           </Card>
         </section>
 
+        {/* HOW TO USE / TIPS */}
         {showTips && (
           <section className="mt-10">
             <Card>
